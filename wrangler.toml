@@ -1,0 +1,21 @@
+name = "airu-api"
+main = "src/index.ts"
+compatibility_date = "2024-07-25"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+WAQI_TOKEN = ""
+ADMIN_SECRET = ""
+
+[[d1_databases]]
+binding = "DB"
+database_name = "airu-db"
+database_id = "50a16ab1-1a8d-48f9-9a82-fe6a84b75dd5"
+migrations_dir = "src/db/migrations"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "98b71db1daa941109dba79dd5dbc2b84"
+
+[triggers]
+crons = ["*/30 * * * *"]
