@@ -25,6 +25,13 @@ app.route('/v1/alert-level', alertLevel)
 // Health
 app.get('/', (c) => c.json({ name: 'Airu API', version: '1.0.0', status: 'ok' }))
 
+// Dev: clear KV cache so fresh data is served after external sync
+app.post('/dev/cache-clear', async (c) => {
+  await c.env.CACHE.delete('stations:all')
+  await c.env.CACHE.delete('alert-level')
+  return c.json({ ok: true })
+})
+
 // Cron handler — sync data every 30 min
 async function syncData(env: Env) {
   const SANTIAGO_LAT = -33.4372

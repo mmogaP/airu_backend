@@ -1,7 +1,7 @@
 name = "airu-api"
 main = "src/index.ts"
 compatibility_date = "2024-07-25"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = []
 
 [vars]
 WAQI_TOKEN = ""
