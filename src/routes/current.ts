@@ -14,8 +14,11 @@ current.get('/', async (c) => {
 
   // By station ID
   if (q.station_id) {
-    const cached = await c.env.CACHE.get(`latest:${q.station_id}`, 'json')
-    if (cached) return c.json({ data: cached })
+    const cached = await c.env.CACHE.get(`latest:${q.station_id}`, 'json') as Record<string, unknown> | null
+    if (cached) {
+      const { aqi_label, ...cachedRest } = cached
+      return c.json({ data: { ...cachedRest, aqiLabel: aqi_label ?? cached.aqiLabel } })
+    }
 
     const row = await c.env.DB.prepare(`
       SELECT r.*, s.name, s.lat, s.lng, s.address
@@ -27,7 +30,8 @@ current.get('/', async (c) => {
     `).bind(q.station_id).first()
 
     if (!row) return c.json({ error: 'No readings found' }, 404)
-    return c.json({ data: row })
+    const { aqi_label, ...rest } = row as Record<string, unknown>
+    return c.json({ data: { ...rest, aqiLabel: aqi_label } })
   }
 
   // By coordinates — find nearest station
@@ -50,7 +54,8 @@ current.get('/', async (c) => {
     `).bind(lat, lat, lng, lng).first()
 
     if (!rows) return c.json({ error: 'No stations found' }, 404)
-    return c.json({ data: rows })
+    const { aqi_label, ...rest2 } = rows as Record<string, unknown>
+    return c.json({ data: { ...rest2, aqiLabel: aqi_label } })
   }
 
   return c.json({ error: 'Provide station_id or lat+lng' }, 400)

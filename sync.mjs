@@ -38,11 +38,29 @@ function calcAqi(pm25) {
   return { aqi: 500, label: 'hazardous' }
 }
 
+const HOURLY_FACTOR = [0.7,0.65,0.6,0.6,0.65,0.75,0.9,1.1,1.15,1.05,0.95,0.85,
+                       0.8,0.8,0.85,0.9,1.0,1.1,1.2,1.15,1.05,0.95,0.85,0.75]
+
+function generateSyntheticHistory(stationId, basePm25) {
+  const now = new Date()
+  const s = []
+  for (let h = 24; h >= 1; h--) {
+    const ts = new Date(now.getTime() - h * 60 * 60 * 1000)
+    const factor = HOURLY_FACTOR[ts.getUTCHours()]
+    const pm25 = Math.max(1, Math.round(basePm25 * factor * (0.9 + Math.random() * 0.2) * 10) / 10)
+    const { aqi, label } = calcAqi(pm25)
+    const tsStr = ts.toISOString().replace('T', ' ').slice(0, 19)
+    s.push(`INSERT INTO readings (station_id,timestamp,pm25,aqi,aqi_label,source) SELECT ${esc(stationId)},${esc(tsStr)},${pm25},${aqi},${esc(label)},'synthetic' WHERE NOT EXISTS (SELECT 1 FROM readings WHERE station_id=${esc(stationId)} AND timestamp=${esc(tsStr)});`)
+  }
+  return s
+}
+
 async function main() {
   const vars = readDevVars()
   const { OPENAQ_API_KEY, WAQI_TOKEN } = vars
   const stmts = []
   const errors = []
+  const stationPm25 = new Map()
 
   // --- OpenAQ ---
   if (OPENAQ_API_KEY) {
@@ -77,6 +95,7 @@ async function main() {
           const { aqi, label } = calcAqi(pm25m.value)
           const ts = pm25m.datetime?.utc ?? pm25m.date?.utc
           stmts.push(`INSERT INTO readings (station_id,timestamp,pm25,pm10,aqi,aqi_label,source) VALUES (${esc(sid)},${esc(ts)},${pm25m.value},${pm10m ? pm10m.value : 'NULL'},${aqi},${esc(label)},'openaq');`)
+          stationPm25.set(sid, pm25m.value)
         } catch { /* skip location */ }
       }
     } catch (e) { errors.push(`OpenAQ: ${e.message}`) }
@@ -105,12 +124,18 @@ async function main() {
           if (!pm25 || pm25 < 0 || pm25 >= 2000) continue
           const { aqi, label } = calcAqi(pm25)
           stmts.push(`INSERT INTO readings (station_id,timestamp,pm25,pm10,temperature,humidity,aqi,aqi_label,source) VALUES (${esc(sid)},${esc(time.iso)},${pm25},${esc(iaqi.pm10?.v ?? null)},${esc(iaqi.t?.v ?? null)},${esc(iaqi.h?.v ?? null)},${aqi},${esc(label)},'waqi');`)
+          stationPm25.set(sid, pm25)
         } catch { /* skip station */ }
       }
     } catch (e) { errors.push(`WAQI: ${e.message}`) }
   }
 
   if (errors.length) console.error('[sync] API errors:', errors)
+
+  // Synthetic history backfill for all synced stations
+  for (const [sid, pm25] of stationPm25.entries()) {
+    stmts.push(...generateSyntheticHistory(sid, pm25))
+  }
 
   if (stmts.length === 0) {
     console.log('[sync] No data to insert')
