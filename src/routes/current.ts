@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Env } from '../types/env'
+import { fetchCurrentWeather } from '../services/weather'
 
 const current = new Hono<{ Bindings: Env }>()
 
@@ -9,17 +10,28 @@ const querySchema = z.union([
   z.object({ lat: z.coerce.number(), lng: z.coerce.number() }),
 ])
 
+async function enrichWeather(
+  data: Record<string, unknown>,
+  lat: number,
+  lng: number,
+  cache: KVNamespace
+): Promise<Record<string, unknown>> {
+  if (data.temperature != null && data.humidity != null) return data
+  const weather = await fetchCurrentWeather(lat, lng, cache)
+  if (!weather) return data
+  return {
+    ...data,
+    temperature: data.temperature ?? weather.temperature,
+    humidity: data.humidity ?? weather.humidity,
+  }
+}
+
 current.get('/', async (c) => {
   const q = c.req.query()
 
   // By station ID
   if (q.station_id) {
-    const cached = await c.env.CACHE.get(`latest:${q.station_id}`, 'json') as Record<string, unknown> | null
-    if (cached) {
-      const { aqi_label, ...cachedRest } = cached
-      return c.json({ data: { ...cachedRest, aqiLabel: aqi_label ?? cached.aqiLabel } })
-    }
-
+    // Always fetch from DB so we have lat/lng for weather enrichment
     const row = await c.env.DB.prepare(`
       SELECT r.*, s.name, s.lat, s.lng, s.address
       FROM readings r
@@ -31,7 +43,9 @@ current.get('/', async (c) => {
 
     if (!row) return c.json({ error: 'No readings found' }, 404)
     const { aqi_label, ...rest } = row as Record<string, unknown>
-    return c.json({ data: { ...rest, aqiLabel: aqi_label } })
+    const reading = { ...rest, aqiLabel: aqi_label }
+    const enriched = await enrichWeather(reading, reading.lat as number, reading.lng as number, c.env.CACHE)
+    return c.json({ data: enriched })
   }
 
   // By coordinates — find nearest station
@@ -55,7 +69,9 @@ current.get('/', async (c) => {
 
     if (!rows) return c.json({ error: 'No stations found' }, 404)
     const { aqi_label, ...rest2 } = rows as Record<string, unknown>
-    return c.json({ data: { ...rest2, aqiLabel: aqi_label } })
+    const reading2 = { ...rest2, aqiLabel: aqi_label }
+    const enriched2 = await enrichWeather(reading2, reading2.lat as number, reading2.lng as number, c.env.CACHE)
+    return c.json({ data: enriched2 })
   }
 
   return c.json({ error: 'Provide station_id or lat+lng' }, 400)

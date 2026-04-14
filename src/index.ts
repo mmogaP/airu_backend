@@ -31,19 +31,46 @@ app.post('/dev/cache-clear', async (c) => {
   return c.json({ ok: true })
 })
 
-function generateSyntheticHistory(stationId: string, basePm25: number): Array<{ stationId: string; timestamp: string; pm25: number; source: 'openaq' }> {
+// Dev: trigger full sync + history backfill manually (useful in local Docker)
+app.post('/dev/sync', async (c) => {
+  const errors = await syncData(c.env)
+  return c.json({ ok: true, errors })
+})
+
+// Dev: delete synthetic readings missing temperature/humidity and re-backfill
+app.post('/dev/fix-weather', async (c) => {
+  await c.env.DB.prepare(`
+    DELETE FROM readings
+    WHERE temperature IS NULL AND humidity IS NULL AND pm10 IS NULL
+      AND timestamp >= datetime('now', '-26 hours')
+  `).run()
+  await backfillHistory(c.env, [])
+  return c.json({ ok: true })
+})
+
+function generateSyntheticHistory(stationId: string, basePm25: number): Array<{
+  stationId: string; timestamp: string; pm25: number
+  temperature: number; humidity: number; source: 'openaq'
+}> {
   const now = new Date()
   const points = []
   // Santiago pattern: higher PM in rush hours (7-9am, 6-9pm), lower midday/night
-  const hourlyFactor = [0.7, 0.65, 0.6, 0.6, 0.65, 0.75, 0.9, 1.1, 1.15, 1.05, 0.95, 0.85,
-                        0.8,  0.8,  0.85, 0.9, 1.0,  1.1,  1.2, 1.15, 1.05, 0.95, 0.85, 0.75]
+  const pmFactor   = [0.7, 0.65, 0.6, 0.6, 0.65, 0.75, 0.9, 1.1, 1.15, 1.05, 0.95, 0.85,
+                      0.8,  0.8,  0.85, 0.9, 1.0,  1.1,  1.2, 1.15, 1.05, 0.95, 0.85, 0.75]
+  // Temperature (°C): cool at night, peak ~14-15 local (UTC-3 → hour+3), base ~18°C
+  const tempBase   = [11, 10.5, 10, 9.5, 9.5, 10, 11, 13, 15, 17, 19, 21,
+                      23, 24,   24, 23,  22,  21, 20, 18, 16, 15, 13, 12]
+  // Humidity (%): inversely related to temperature
+  const humidBase  = [82, 85, 87, 88, 88, 86, 82, 76, 70, 63, 57, 51,
+                      46, 43, 43, 46, 50, 54, 58, 64, 70, 74, 79, 82]
   for (let h = 24; h >= 0; h--) {
     const ts = new Date(now.getTime() - h * 60 * 60 * 1000)
     const hour = ts.getUTCHours()
-    const factor = hourlyFactor[hour]
     const jitter = 0.9 + Math.random() * 0.2
-    const pm25 = Math.max(1, basePm25 * factor * jitter)
-    points.push({ stationId, timestamp: ts.toISOString().replace('T', ' ').slice(0, 19), pm25, source: 'openaq' as const })
+    const pm25 = Math.max(1, basePm25 * pmFactor[hour] * jitter)
+    const temperature = +(tempBase[hour] + (Math.random() - 0.5) * 2).toFixed(1)
+    const humidity = Math.round(humidBase[hour] + (Math.random() - 0.5) * 6)
+    points.push({ stationId, timestamp: ts.toISOString().replace('T', ' ').slice(0, 19), pm25, temperature, humidity, source: 'openaq' as const })
   }
   return points
 }
@@ -67,11 +94,12 @@ async function backfillHistory(env: Env, _stations: Array<{ id: number; stationI
         if (!reading) continue
 
         await env.DB.prepare(`
-          INSERT INTO readings (station_id, timestamp, pm25, aqi, aqi_label, source)
-          SELECT ?, ?, ?, ?, ?, ?
+          INSERT INTO readings (station_id, timestamp, pm25, temperature, humidity, aqi, aqi_label, source)
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?
           WHERE NOT EXISTS (SELECT 1 FROM readings WHERE station_id = ? AND timestamp = ?)
         `).bind(
-          reading.stationId, reading.timestamp, reading.pm25, reading.aqi, reading.aqiLabel, reading.source,
+          reading.stationId, reading.timestamp, reading.pm25, point.temperature, point.humidity,
+          reading.aqi, reading.aqiLabel, reading.source,
           reading.stationId, reading.timestamp
         ).run()
       }
