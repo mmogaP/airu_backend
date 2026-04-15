@@ -219,6 +219,11 @@ async function syncData(env: Env) {
     }
   }
 
+  // Prune readings older than 8 days — frontend max is 7 days (168h)
+  await env.DB.prepare(
+    `DELETE FROM readings WHERE timestamp < datetime('now', '-8 days')`
+  ).run()
+
   // Invalidate station list cache
   await env.CACHE.delete('stations:all')
   await env.CACHE.delete('alert-level')
