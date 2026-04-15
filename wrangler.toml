@@ -3,9 +3,7 @@ main = "src/index.ts"
 compatibility_date = "2024-07-25"
 compatibility_flags = []
 
-[vars]
-WAQI_TOKEN = ""
-ADMIN_SECRET = ""
+# Secrets (WAQI_TOKEN, ADMIN_SECRET, OPENAQ_API_KEY) are stored via `wrangler secret put`
 
 [[d1_databases]]
 binding = "DB"

@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { corsMiddleware } from './middleware/cors'
+import { corsMiddleware, originGuard } from './middleware/cors'
 import { stations } from './routes/stations'
 import { current } from './routes/current'
 import { history } from './routes/history'
@@ -13,6 +13,7 @@ import { fetchNearbyStations, fetchStationDetail, waqiStationId } from './servic
 const app = new Hono<{ Bindings: Env }>()
 
 app.use('*', corsMiddleware)
+app.use('/v1/*', originGuard)
 
 // Public API
 app.route('/v1/stations', stations)
@@ -23,6 +24,15 @@ app.route('/v1/alert-level', alertLevel)
 
 // Health
 app.get('/', (c) => c.json({ name: 'Airu API', version: '1.0.0', status: 'ok' }))
+
+// Admin auth middleware for /dev/* routes — requires Authorization: Bearer <ADMIN_SECRET>
+app.use('/dev/*', async (c, next) => {
+  const auth = c.req.header('authorization')
+  if (!c.env.ADMIN_SECRET || auth !== `Bearer ${c.env.ADMIN_SECRET}`) {
+    return c.json({ error: 'Unauthorized' }, 401)
+  }
+  return next()
+})
 
 // Dev: clear KV cache so fresh data is served after external sync
 app.post('/dev/cache-clear', async (c) => {
@@ -132,7 +142,7 @@ async function syncData(env: Env) {
         `).bind(stationId, loc.name, loc.coordinates.latitude, loc.coordinates.longitude).run()
 
         // Get latest measurements
-        const measurements = await fetchLatestByLocation(env.OPENAQ_API_KEY, loc.id)
+        const measurements = await fetchLatestByLocation(env.OPENAQ_API_KEY, loc.id, loc.sensors)
         const pm25m = measurements.find(m => m.parameter === 'pm25')
         const pm10m = measurements.find(m => m.parameter === 'pm10')
 
@@ -179,7 +189,7 @@ async function syncData(env: Env) {
         await env.DB.prepare(`
           INSERT OR REPLACE INTO stations (id, name, source, lat, lng, last_seen)
           VALUES (?, ?, 'waqi', ?, ?, datetime('now'))
-        `).bind(stationId, s.station.name, s.station.geo[0], s.station.geo[1]).run()
+        `).bind(stationId, s.station.name, s.lat, s.lon).run()
 
         const detail = await fetchStationDetail(env.WAQI_TOKEN, s.uid)
         const reading = normalize({

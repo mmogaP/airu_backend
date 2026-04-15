@@ -3,10 +3,10 @@ const BASE_URL = 'https://api.waqi.info'
 export interface WaqiStation {
   uid: number
   aqi: string
+  lat: number   // top-level in bounds response
+  lon: number
   station: {
     name: string
-    geo: [number, number] // [lat, lng]
-    url: string
     time: string
   }
 }

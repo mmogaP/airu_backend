@@ -14,12 +14,18 @@ export interface OpenAQLocation {
   lastUpdated: string
 }
 
+// Normalized measurement returned by fetchLatestByLocation
 export interface OpenAQMeasurement {
-  locationId: number
-  parameter: string
+  parameter: string       // 'pm25' | 'pm10' | etc — resolved from sensor list
   value: number
-  unit: string
-  date: { utc: string; local: string }
+  date: { utc: string }  // normalized from datetime.utc
+}
+
+// Raw shape returned by /locations/{id}/latest
+interface OpenAQLatestRaw {
+  sensorsId: number
+  value: number
+  datetime: { utc: string; local: string }
 }
 
 export async function fetchSantiagoLocations(apiKey: string): Promise<OpenAQLocation[]> {
@@ -34,15 +40,29 @@ export async function fetchSantiagoLocations(apiKey: string): Promise<OpenAQLoca
 
 export async function fetchLatestByLocation(
   apiKey: string,
-  locationId: number
+  locationId: number,
+  sensors: OpenAQLocation['sensors']
 ): Promise<OpenAQMeasurement[]> {
   const url = `${BASE_URL}/locations/${locationId}/latest`
   const res = await fetch(url, {
     headers: { 'X-API-Key': apiKey },
   })
   if (!res.ok) throw new Error(`OpenAQ latest error: ${res.status}`)
-  const data = await res.json() as { results: OpenAQMeasurement[] }
-  return data.results ?? []
+  const data = await res.json() as { results: OpenAQLatestRaw[] }
+
+  // Build sensorId → parameterName map from the location's sensor list
+  const sensorParam = new Map<number, string>()
+  for (const s of sensors) {
+    sensorParam.set(s.id, s.parameter.name)
+  }
+
+  return (data.results ?? [])
+    .filter(r => sensorParam.has(r.sensorsId))
+    .map(r => ({
+      parameter: sensorParam.get(r.sensorsId)!,
+      value: r.value,
+      date: { utc: r.datetime.utc },
+    }))
 }
 
 export async function fetchHistory(
