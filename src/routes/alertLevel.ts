@@ -37,7 +37,7 @@ alertLevel.get('/', async (c) => {
   }
 
   const result: AlertLevel = { level, pm25Value: pm25, message }
-  await c.env.CACHE.put('alert-level', JSON.stringify(result), { expirationTtl: 300 })
+  try { await c.env.CACHE.put('alert-level', JSON.stringify(result), { expirationTtl: 300 }) } catch {}
 
   return c.json({ data: result })
 })

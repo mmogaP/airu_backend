@@ -34,7 +34,7 @@ stations.get('/', async (c) => {
     lastReading: r.timestamp,
   }))
 
-  await c.env.CACHE.put('stations:all', JSON.stringify(data), { expirationTtl: 300 })
+  try { await c.env.CACHE.put('stations:all', JSON.stringify(data), { expirationTtl: 300 }) } catch {}
 
   return c.json({ data })
 })

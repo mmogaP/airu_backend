@@ -22,7 +22,7 @@ export async function fetchCurrentWeather(
       temperature: data.current.temperature_2m,
       humidity: data.current.relative_humidity_2m,
     }
-    await cache.put(key, JSON.stringify(weather), { expirationTtl: 1800 }) // 30 min
+    try { await cache.put(key, JSON.stringify(weather), { expirationTtl: 1800 }) } catch {}
     return weather
   } catch {
     return null
