@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { corsMiddleware, originGuard } from './middleware/cors'
+import { corsMiddleware } from './middleware/cors'
 import { stations } from './routes/stations'
 import { current } from './routes/current'
 import { history } from './routes/history'
@@ -13,7 +13,6 @@ import { fetchNearbyStations, fetchStationDetail, waqiStationId } from './servic
 const app = new Hono<{ Bindings: Env }>()
 
 app.use('*', corsMiddleware)
-app.use('/v1/*', originGuard)
 
 // Public API
 app.route('/v1/stations', stations)
