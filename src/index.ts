@@ -164,8 +164,6 @@ async function syncData(env: Env) {
             reading.stationId, reading.timestamp, reading.pm25, reading.pm10,
             reading.aqi, reading.aqiLabel, reading.source
           ).run()
-
-          await env.CACHE.put(`latest:${stationId}`, JSON.stringify(reading), { expirationTtl: 3600 })
         }
 
         openaqSynced.push({ id: loc.id, stationId })
@@ -210,8 +208,6 @@ async function syncData(env: Env) {
             reading.stationId, reading.timestamp, reading.pm25, reading.pm10,
             reading.temperature, reading.humidity, reading.aqi, reading.aqiLabel, reading.source
           ).run()
-
-          await env.CACHE.put(`latest:${stationId}`, JSON.stringify(reading), { expirationTtl: 3600 })
         }
       }
     } catch (e) {
